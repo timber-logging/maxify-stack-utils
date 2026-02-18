@@ -1,0 +1,32 @@
+# Ignore node_modules
+node_modules/
+
+# Ignore logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ignore other files
+deploy.sh
+
+# Ignore compiled files
+dist/
+build/
+
+# Ignore TypeScript cache
+*.tsbuildinfo
+
+# Ignore environment variables
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+
+# Ignore OS specific files
+.DS_Store
+Thumbs.db
+
+# my sourcemap output
+.build-output/
