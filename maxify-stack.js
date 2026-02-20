@@ -4,34 +4,43 @@ const { SourceMapConsumer } = require('source-map');
 
 /**
  * Searches for the map file in both server and client chunk directories.
- * @param {string} nextBuildPath - Path to the local Next.js build directory (.next).
+ * @param {string} folderPath - Path to the local build directory
  * @param {string} baseFileName - The clean file name (e.g., '7a388834aa9d5bf2.js').
  * @returns {string|null} The absolute path to the .map file if found, otherwise null.
  */
-function findMapPath(nextBuildPath, baseFileName) {
-  // Client-Side Chunk Location (static/chunks)
-  const clientPath = path.join(nextBuildPath, 'static', 'chunks', baseFileName + '.map');
-  if (fs.existsSync(clientPath)) {
-    return clientPath;
-  }
-  
-  // Server-Side Chunk Location (server/chunks)
-  const serverPath = path.join(nextBuildPath, 'server', 'chunks', baseFileName + '.map');
-  if (fs.existsSync(serverPath)) {
-    return serverPath;
-  }
+function findMapPath(folderPath, baseFileName) {
+  const sourceFolderPaths = [
+    path.join(folderPath, baseFileName + '.map'),
+    path.join(folderPath, 'server', baseFileName + '.map'),
+    path.join(folderPath, 'static', 'chunks', baseFileName + '.map'),
+    path.join(folderPath, 'server', 'chunks', baseFileName + '.map'),
+    path.join(folderPath, 'server', 'app', baseFileName + '.map'),
+    path.join(folderPath, 'server', 'app-pages-browser', 'chunks', baseFileName + '.map'),
+    path.join(folderPath, 'dist', baseFileName + '.map'),
+    path.join(folderPath, 'build', baseFileName + '.map'),
+    path.join(folderPath, '.webpack', baseFileName + '.map'),
+  ];
 
-  // Server Entry Point Location (server/pages or server/app)
-  // Check the main server folder as well, as some files land there.
-  const serverMainPath = path.join(nextBuildPath, 'server', baseFileName + '.map');
-  if (fs.existsSync(serverMainPath)) {
-    return serverMainPath;
+  for (let sourceFolderPath of sourceFolderPaths) {
+    if (fs.existsSync(sourceFolderPath)) {
+      return sourceFolderPath;
+    }
   }
 
   return null; // Not found in any standard location
 }
 
-async function maxifyStack(nextBuildPath, stack) {
+/**
+ * @param {string} folderPath - the folder path which contains source maps
+ * @param {string} stack - the minified stack trace you want to convert
+ * @returns {{ result?: string, error?: string }}
+ */
+async function maxifyStack(folderPath, stack) {
+  if (typeof stack !== 'string') return { error: `stack not provided as a string` };
+  if (!folderPath || typeof folderPath !== 'string') {
+    return { error: `folderPath not provided as a string` };
+  }
+
   const stackLines = stack.split('\n');
 
   const updatedLines = [];
@@ -41,7 +50,8 @@ async function maxifyStack(nextBuildPath, stack) {
     // at /var/task/.next/server/chunks/[root-of-the-server]__d6ddf850._.js:7:3411
     // at async I (/var/task/.next/server/chunks/[root-of-the-server]__d6ddf850._.js:7:3130)
     // at async W (/var/task/.next/server/chunks/_37b977cc._.js:5:3311)
-    const regex = /(?<=^)(?<intro> *at(?: async)?)(?: .+)? \(?.+\/(?<filename>.+\.js):(?<line>\d+):(?<column>\d+)\)?$/m;
+    // "[\/\\]" to handle linux/windows
+    const regex = /(?<=^)(?<intro> *at(?: async)?)(?: .+)? \(?.+[\/\\](?<filename>.+\.(?:js|jsx|ts|tsx|mjs|cjs)):(?<line>\d+):(?<column>\d+)\)?$/m;
 
     const fields = regex.exec(stackLine);
     if (!fields) {
@@ -50,10 +60,10 @@ async function maxifyStack(nextBuildPath, stack) {
     }
 
     // Search all likely locations
-    const mapPath = findMapPath(nextBuildPath, fields.groups.filename);
+    const mapPath = findMapPath(folderPath, fields.groups.filename);
 
     if (!mapPath) {
-      updatedLines.push(`${stackLine} ***minified file not found***`);
+      updatedLines.push(`${stackLine} *minified file not found*`);
       continue;
     }
 
@@ -65,9 +75,11 @@ async function maxifyStack(nextBuildPath, stack) {
         line: parseInt(fields.groups.line, 10),
         column: parseInt(fields.groups.column, 10)
       });
+      consumer.destroy(); // clean up
 
       const functionName = originalPosition.name || 'anonymous';
-      const filename = originalPosition.source.replace(/^webpack:\/\//, '');
+      const prefixRegex = /^(?:webpack:|webpack-internal:|turbopack:|@fs)\/\//;
+      const filename = originalPosition.source.replace(prefixRegex, '');
       const lineColumn = `${originalPosition.line}:${originalPosition.column}`;
 
       const updatedLine = `${fields.groups.intro} ${functionName} ${filename}:${lineColumn}`;
@@ -75,7 +87,7 @@ async function maxifyStack(nextBuildPath, stack) {
       continue;
     } catch (e) {
       errors.push(`${stackLine}: ${e.message}`);
-      updatedLines.push(`${stackLine} ***error***`);
+      updatedLines.push(`${stackLine} *error*`);
       continue;
     }
   }

@@ -14,19 +14,9 @@ deploy.sh
 dist/
 build/
 
-# Ignore TypeScript cache
-*.tsbuildinfo
-
-# Ignore environment variables
-.env
-.env.local
-.env.production
-.env.development
-.env.*.local
-
 # Ignore OS specific files
 .DS_Store
 Thumbs.db
 
-# my sourcemap output
-.build-output/
+# sourcemap output
+.source-maps/
