@@ -31,14 +31,43 @@ function findMapPath(folderPath, baseFileName) {
 }
 
 /**
- * @param {string} folderPath - the folder path which contains source maps
+ * @param {string|string[]} folderPath - the folder path which contains source maps, or array of paths
  * @param {string} stack - the minified stack trace you want to convert
- * @returns {{ result?: string, error?: string }}
+ * @returns {Promise<{ result?: string, error?: string, fileFound?: boolean }>}
  */
 async function maxifyStack(folderPath, stack) {
-  if (typeof stack !== 'string') return { error: `stack not provided as a string` };
+  if (typeof stack !== 'string') {
+    return { error: `stack not provided as a string` };
+  }
+  // if it is just a single string, use it
+  if (typeof folderPath === 'string') {
+    return await maxifyStackForPath(folderPath, stack);
+  }
+
+  if (!Array.isArray(folderPath) || folderPath.length === 0) {
+    return { error: `path must be a string or array of strings` };
+  }
+
+  let response;
+  for (let path of folderPath) {
+    response = await maxifyStackForPath(path, stack);
+    if (response.fileFound) {
+      return response;
+    }
+  }
+
+  return response || {}; // sends the last one if none were found
+}
+
+/**
+ * @param {string} folderPath - the folder path which contains source maps
+ * @param {string} stack - the minified stack trace you want to convert
+ * @returns {Promise<{ result?: string, error?: string, fileFound?: boolean }>}
+ */
+async function maxifyStackForPath(folderPath, stack) {
+  let fileFound = false; // where at least one row had the file found
   if (!folderPath || typeof folderPath !== 'string') {
-    return { error: `folderPath not provided as a string` };
+    return { error: `folderPath not provided as a string`, fileFound };
   }
 
   const stackLines = stack.split('\n');
@@ -51,7 +80,8 @@ async function maxifyStack(folderPath, stack) {
     // at async I (/var/task/.next/server/chunks/[root-of-the-server]__d6ddf850._.js:7:3130)
     // at async W (/var/task/.next/server/chunks/_37b977cc._.js:5:3311)
     // "[\/\\]" to handle linux/windows
-    const regex = /(?<=^)(?<intro> *at(?: async)?)(?: .+)? \(?.+[\/\\](?<filename>.+\.(?:js|jsx|ts|tsx|mjs|cjs)):(?<line>\d+):(?<column>\d+)\)?$/m;
+    const regex =
+      /(?<=^)(?<intro> *at(?: async)?)(?: .+)? \(?.+[\/\\](?<filename>.+\.(?:js|jsx|ts|tsx|mjs|cjs)):(?<line>\d+):(?<column>\d+)\)?$/m;
 
     const fields = regex.exec(stackLine);
     if (!fields) {
@@ -67,13 +97,15 @@ async function maxifyStack(folderPath, stack) {
       continue;
     }
 
+    fileFound = true; // where at least one row had the file found
+
     try {
       const mapContent = fs.readFileSync(mapPath, 'utf8');
       const consumer = await new SourceMapConsumer(mapContent);
 
       const originalPosition = consumer.originalPositionFor({
         line: parseInt(fields.groups.line, 10),
-        column: parseInt(fields.groups.column, 10)
+        column: parseInt(fields.groups.column, 10),
       });
       consumer.destroy(); // clean up
 
@@ -100,7 +132,7 @@ async function maxifyStack(folderPath, stack) {
   // console.log(result)
   // if (error) console.log('errors', error)
 
-  return { result, error };
+  return { result, error, fileFound };
 }
 
 module.exports = { maxifyStack };

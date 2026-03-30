@@ -8,7 +8,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # ignore other files
-deploy.sh
+deploy-npm.sh
 
 # Ignore compiled files
 dist/
